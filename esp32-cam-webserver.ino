@@ -36,6 +36,9 @@
  *
  */
 
+// Wifi Disconnect Timeout.
+#define WDT_TIMEOUT 5
+
 // Primary config, or defaults.
 #if __has_include("myconfig.h")
     struct station { const char ssid[65]; const char password[65]; const bool dhcp;};  // do no edit
@@ -365,6 +368,7 @@ void StartCamera() {
         // Start a 60 second watchdog timer
         esp_task_wdt_init(60,true);
         esp_task_wdt_add(NULL);
+        delay(70000);
     } else {
         Serial.println("Camera init succeeded");
 
@@ -683,12 +687,16 @@ void setup() {
     /*
     * Camera setup complete; initialise the rest of the hardware.
     */
-
-    // Start Wifi and loop until we are connected or have started an AccessPoint
+    
+    // Start Wifi and loop until we are connected or have started an AccessPoint, if we are not connected after 120 Sec of Accesspoint is up system is rebooting.
+    esp_task_wdt_init(120, true);
+    esp_task_wdt_add(NULL);
     while ((WiFi.status() != WL_CONNECTED) && !accesspoint)  {
         WifiSetup();
         delay(1000);
     }
+    esp_task_wdt_reset();
+    esp_task_wdt_delete(NULL);
 
     // Set up OTA
     if (otaEnabled) {
@@ -707,6 +715,10 @@ void setup() {
         }
         ArduinoOTA
             .onStart([]() {
+                esp_task_wdt_reset();
+                esp_task_wdt_delete(NULL);
+                esp_task_wdt_deinit();
+                
                 String type;
                 if (ArduinoOTA.getCommand() == U_FLASH)
                     type = "sketch";
@@ -791,6 +803,11 @@ void setup() {
         Serial.printf("\r\nCamera unavailable due to initialisation errors.\r\n\r\n");
     }
 
+    // Setup Reboot on wifi disconnect.
+    Serial.println("Setup WDT reset.");
+    esp_task_wdt_init(WDT_TIMEOUT, true); //enable panic so ESP32 restarts
+    esp_task_wdt_add(NULL); //add current thread to WDT watch
+
     // Info line; use for Info messages; eg 'This is a Beta!' warnings, etc. as necesscary
     // Serial.print("\r\nThis is the 4.1 beta\r\n");
 
@@ -798,48 +815,41 @@ void setup() {
     while (Serial.available()) Serial.read();
 }
 
+int last = millis();
+int loopdelay = (1000 * WDT_TIMEOUT)-1000;
+
 void loop() {
+  if (millis() - last >= loopdelay) {
+    last = millis();
+
     /*
      *  Just loop forever, reconnecting Wifi As necesscary in client mode
      * The stream and URI handler processes initiated by the startCameraServer() call at the
      * end of setup() will handle the camera and UI processing from now on.
     */
     if (accesspoint) {
-        // Accespoint is permanently up, so just loop, servicing the captive portal as needed
-        // Rather than loop forever, follow the watchdog, in case we later add auto re-scan.
-        unsigned long start = millis();
-        while (millis() - start < WIFI_WATCHDOG ) {
-            delay(100);
-            if (otaEnabled) ArduinoOTA.handle();
-            handleSerial();
-            if (captivePortal) dnsServer.processNextRequest();
-        }
+      esp_task_wdt_reset(); // resetting WDT
+
+      // Accespoint is permanently up, so just loop, servicing the captive portal as needed
+      // Rather than loop forever, follow the watchdog, in case we later add auto re-scan.
+      unsigned long start = millis();
+      while (millis() - start < WIFI_WATCHDOG ) {
+          delay(100);
+          if (otaEnabled) ArduinoOTA.handle();
+          handleSerial();
+          if (captivePortal) dnsServer.processNextRequest();
+      }
     } else {
-        // client mode can fail; so reconnect as appropriate
-        static bool warned = false;
-        if (WiFi.status() == WL_CONNECTED) {
-            // We are connected, wait a bit and re-check
-            if (warned) {
-                // Tell the user if we have just reconnected
-                Serial.println("WiFi reconnected");
-                warned = false;
-            }
-            // loop here for WIFI_WATCHDOG, turning debugData true/false depending on serial input..
-            unsigned long start = millis();
-            while (millis() - start < WIFI_WATCHDOG ) {
-                delay(100);
-                if (otaEnabled) ArduinoOTA.handle();
-                handleSerial();
-            }
-        } else {
-            // disconnected; attempt to reconnect
-            if (!warned) {
-                // Tell the user if we just disconnected
-                WiFi.disconnect();  // ensures disconnect is complete, wifi scan cleared
-                Serial.println("WiFi disconnected, retrying");
-                warned = true;
-            }
-            WifiSetup();
-        }
+      // client mode can fail; so reconnect as appropriate
+      if (WiFi.status() == WL_CONNECTED) {
+          esp_task_wdt_reset(); // resetting WDT
+
+          if (otaEnabled) ArduinoOTA.handle();
+          handleSerial();
+      } else {
+          // disconnected; attempt to reconnect
+          Serial.println("Stopping WDT reset. CPU should reboot in 3s");
+      }
     }
+  }
 }
