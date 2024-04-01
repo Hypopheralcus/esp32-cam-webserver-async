@@ -39,6 +39,9 @@
 // Wifi Disconnect Timeout.
 #define WDT_TIMEOUT 5
 
+// Conversion factor for micro seconds to seconds
+#define uS_TO_S_FACTOR 1000000ULL
+
 // Primary config, or defaults.
 #if __has_include("myconfig.h")
     struct station { const char ssid[65]; const char password[65]; const bool dhcp;};  // do no edit
@@ -851,5 +854,18 @@ void loop() {
           Serial.println("Stopping WDT reset. CPU should reboot in 3s");
       }
     }
+
+    #if defined(ENABLE_DEEPSLEEP)
+      if (haveTime) {
+          struct tm info;
+          if(getLocalTime(&info)){
+            if (info.tm_hour = BED_TIME_HOUR && info.tm_min >= BED_TIME_MIN && info.tm_min < (BED_TIME_MIN + BED_TIME_SLIDING_WINDOW)) {
+              Serial.printf("Going to deep sleep for %d minutes", SLEEP_MINUTES);
+              esp_deep_sleep((uS_TO_S_FACTOR * 60) * SLEEP_MINUTES);
+            }
+          }
+      }
+    #endif
+
   }
 }

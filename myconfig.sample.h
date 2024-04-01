@@ -128,6 +128,20 @@ struct station stationList[] = {{"ssid1", "pass1", true},
 //#define NTP_DST_OFFSET 3600
 
 /*
+ * Deepsleep
+ * Uncomment the following to enable the deep sleep, works only if NTPSERVER is enabled.
+ * SLEEPHOURS time to wakeup after
+ * Tim
+ * 
+ */
+
+//#define ENABLE_DEEPSLEEP
+//#define SLEEP_MINUTES 2
+//#define BED_TIME_HOUR 14
+//#define BED_TIME_MIN 13
+//#define BED_TIME_SLIDING_WINDOW 1
+
+/*
  * Camera Defaults
  *
  */
